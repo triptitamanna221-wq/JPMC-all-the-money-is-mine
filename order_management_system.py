@@ -1,6 +1,4 @@
 import time
-
-
 # ORDER MANAGEMENT SYSTEM CLASS
 
 class OrderManagementSystem:
@@ -16,22 +14,22 @@ class OrderManagementSystem:
         self.trader_name = trader_name
 
 
-        # a. Cash tracking — the amount available for trading
+        # Cash tracking:the amount available for trading
 
         self.cash = initial_cash         # Current available cash
         self.total_deposited = initial_cash  # Track total deposits for P&L calculation
 
 
-        # Portfolio: tracks shares owned across ALL exchanges
+        # Portfolio: tracks shares owned across all exchanges
         self.portfolio = {}
 
 
-        # Order log: keeps a record of every order placed
+        # Order log: keep a record of every order placed
 
         self.order_log = []
 
 
-        # Fill log: records every confirmed trade execution
+        # Fill log: record every confirmed trade execution
         # This comes from the exchange calling on_fill()
 
         self.fill_log = []
@@ -58,7 +56,7 @@ class OrderManagementSystem:
         return f"{self.trader_name}_ORD_{self._order_counter}"
 
 
-    # b. CASH MANAGEMENT
+    # CASH MANAGEMENT
 
 
     def get_cash_balance(self):
@@ -100,7 +98,7 @@ class OrderManagementSystem:
         print(f"[OMS:{self.trader_name}] Withdrew ${amount} | Remaining Balance: ${self.cash}")
 
 
-    # c. PORTFOLIO VALUE
+    # PORTFOLIO VALUE
 
 
     def get_portfolio_value(self, exchanges):
@@ -149,7 +147,7 @@ class OrderManagementSystem:
         return pnl
 
 
-    # d. PLACE BUY ORDER
+    # PLACE BUY ORDER
 
     def buy_stock(self, target_exchange, stock, price, qty):
         """
@@ -203,7 +201,7 @@ class OrderManagementSystem:
         return order_id
 
 
-    # e. PLACE SELL ORDER
+    # PLACE SELL ORDER
 
 
     def sell_stock(self, target_exchange, stock, price, qty):
@@ -325,17 +323,4 @@ class OrderManagementSystem:
         print(f"  Fills Received : {len(self.fill_log)}")
         print(f"{'='*50}\n")
 
-"""
----
 
-## How It All Connects
-```
-Trader
-  └── calls oms.buy_stock(exchange, stock, price, qty)
-        └── OMS validates (cash check)
-        └── OMS sends to exchange.place_order(...)
-              └── Exchange._match() executes the trade
-              └── Exchange._settle() calls oms.on_fill() ← exchange notifies OMS
-        └── OMS updates portfolio / cash in on_fill()
-```
-"""
