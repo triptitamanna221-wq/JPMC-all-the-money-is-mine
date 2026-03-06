@@ -108,8 +108,8 @@ class OrderManagementSystem:
         exists = any(order[0] ==price for order in book)
         return exists
 
-    def buy_stock(self, target_exchange, stock, price, qty):
-        total_cost = price * qty
+    def buy_stock(self, exchange_idx, stock, price, qty):
+    target_exchange = self.exchanges[exchange_idx] //changed
 
         if total_cost > self.cash:
             print(f"[OMS:{self.trader_name}] BUY REJECTED: Need ${total_cost}, only have ${self.cash}.")
