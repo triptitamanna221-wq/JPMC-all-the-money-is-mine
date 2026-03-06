@@ -1,5 +1,4 @@
 import time
-
 class OrderManagementSystem:
 
     def __init__(self, trader_name, initial_cash):
