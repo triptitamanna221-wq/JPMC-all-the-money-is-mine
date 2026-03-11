@@ -1,0 +1,372 @@
+import time
+import random
+import matplotlib.pyplot as plt
+from typing import Dict, List, Optional, Tuple
+
+class Order:
+    def __init__(self, order_id: str, trader_id: str, stock: str, side: str, price: float, quantity: int, timestamp: float):
+        self.order_id = order_id
+        self.trader_id = trader_id
+        self.stock = stock
+        self.side = side.upper()
+        self.price = price
+        self.quantity = quantity
+        self.timestamp = timestamp
+
+class Trade:
+    def __init__(self, stock: str, price: float, quantity: int, buyer_order: Order, seller_order: Order, timestamp: float):
+        self.stock = stock
+        self.price = price
+        self.quantity = quantity
+        self.buyer_order = buyer_order
+        self.seller_order = seller_order
+        self.timestamp = timestamp
+
+class OrderBook:
+    def __init__(self):
+        self.bids: Dict[float, List[Order]] = {}
+        self.asks: Dict[float, List[Order]] = {}
+
+    def best_bid(self) -> Optional[float]:
+        return max(self.bids.keys()) if self.bids else None
+
+    def best_ask(self) -> Optional[float]:
+        return min(self.asks.keys()) if self.asks else None
+
+    def top_5_bids(self) -> List[float]:
+        return sorted(self.bids.keys(), reverse=True)[:5]
+
+    def top_5_asks(self) -> List[float]:
+        return sorted(self.asks.keys())[:5]
+
+    def add_order(self, order: Order):
+        book = self.bids if order.side == 'BUY' else self.asks
+        book.setdefault(order.price, []).append(order)
+
+class MatchingEngine:
+    def match(self, incoming_order: Order, book: OrderBook) -> List[Trade]:
+        trades: List[Trade] = []
+        if incoming_order.side == 'BUY':
+            while incoming_order.quantity > 0 and book.asks:
+                best_ask = book.best_ask()
+                if best_ask is None or incoming_order.price < best_ask:
+                    break
+                ask_orders = book.asks[best_ask]
+                while incoming_order.quantity > 0 and ask_orders:
+                    resting_ask = ask_orders[0]
+                    trade_qty = min(incoming_order.quantity, resting_ask.quantity)
+                    trade = Trade(incoming_order.stock, resting_ask.price, trade_qty,
+                                  incoming_order, resting_ask, time.time())
+                    trades.append(trade)
+                    incoming_order.quantity -= trade_qty
+                    resting_ask.quantity -= trade_qty
+                    if resting_ask.quantity == 0:
+                        ask_orders.pop(0)
+                if not ask_orders:
+                    del book.asks[best_ask]
+        else:
+            while incoming_order.quantity > 0 and book.bids:
+                best_bid = book.best_bid()
+                if best_bid is None or incoming_order.price > best_bid:
+                    break
+                bid_orders = book.bids[best_bid]
+                while incoming_order.quantity > 0 and bid_orders:
+                    resting_bid = bid_orders[0]
+                    trade_qty = min(incoming_order.quantity, resting_bid.quantity)
+                    trade = Trade(incoming_order.stock, resting_bid.price, trade_qty,
+                                  resting_bid, incoming_order, time.time())
+                    trades.append(trade)
+                    incoming_order.quantity -= trade_qty
+                    resting_bid.quantity -= trade_qty
+                    if resting_bid.quantity == 0:
+                        bid_orders.pop(0)
+                if not bid_orders:
+                    del book.bids[best_bid]
+        return trades
+
+class StockExchange:
+    def __init__(self, exchange_id: int, trading_start: float, trading_end: float):
+        self.exchange_id = exchange_id
+        self.trading_start = trading_start
+        self.trading_end = trading_end
+        self.order_books: Dict[str, OrderBook] = {}
+        self.last_traded_price: Dict[str, float] = {}
+        self.matching_engine = MatchingEngine()
+        self.oms_registry: Dict[str, 'OrderManagementSystem'] = {}
+
+    def register_oms(self, trader_id: str, oms: 'OrderManagementSystem'):
+        self.oms_registry[trader_id] = oms
+
+    def _is_trading_open(self) -> bool:
+        return True
+
+    def get_last_traded_price(self, stock: str) -> Optional[float]:
+        return self.last_traded_price.get(stock)
+
+    def get_best_bid_offer(self, stock: str) -> Tuple[Optional[float], Optional[float]]:
+        book = self.order_books.get(stock)
+        if not book: return None, None
+        return book.best_bid(), book.best_ask()
+
+    def get_bbo_with_volume(self, stock: str) -> Tuple[Optional[Tuple[float, int]], Optional[Tuple[float, int]]]:
+        book = self.order_books.get(stock)
+        if not book: return None, None
+
+        bb = book.best_bid()
+        ba = book.best_ask()
+
+        bid_info = (bb, sum(o.quantity for o in book.bids[bb])) if bb else None
+        ask_info = (ba, sum(o.quantity for o in book.asks[ba])) if ba else None
+
+        return bid_info, ask_info
+
+    def accept_order(self, order: Order) -> bool:
+        book = self.order_books.setdefault(order.stock, OrderBook())
+        trades = self.matching_engine.match(order, book)
+        for trade in trades:
+            self.last_traded_price[trade.stock] = trade.price
+            self._settle_trade(trade)
+        if order.quantity > 0:
+            book.add_order(order)
+            self._prune_order_book(book)
+        return True
+
+    def _prune_order_book(self, book: OrderBook):
+        top_bids = book.top_5_bids()
+        prices_to_remove = [p for p in list(book.bids.keys()) if p not in top_bids]
+        for p in prices_to_remove:
+            for order in book.bids[p]:
+                if order.trader_id in self.oms_registry:
+                    self.oms_registry[order.trader_id].on_cancel(order, "Fell outside top 5 bids")
+            del book.bids[p]
+
+        top_asks = book.top_5_asks()
+        prices_to_remove = [p for p in list(book.asks.keys()) if p not in top_asks]
+        for p in prices_to_remove:
+            for order in book.asks[p]:
+                if order.trader_id in self.oms_registry:
+                    self.oms_registry[order.trader_id].on_cancel(order, "Fell outside top 5 asks")
+            del book.asks[p]
+
+    def _settle_trade(self, trade: Trade):
+        if trade.buyer_order.trader_id in self.oms_registry:
+            self.oms_registry[trade.buyer_order.trader_id].on_fill(trade, side='BUY', exchange_id=self.exchange_id)
+        if trade.seller_order.trader_id in self.oms_registry:
+            self.oms_registry[trade.seller_order.trader_id].on_fill(trade, side='SELL', exchange_id=self.exchange_id)
+
+    def cancel_all_eod(self):
+        for book in self.order_books.values():
+            for side_book in [book.bids, book.asks]:
+                for orders in side_book.values():
+                    for order in orders:
+                        if order.trader_id in self.oms_registry:
+                            self.oms_registry[order.trader_id].on_cancel(order, "End of Trading Day")
+                side_book.clear()
+
+class OrderManagementSystem:
+    def __init__(self, trader_id: str, initial_cash: float, portfolio: Dict[str, int], exchanges: List[StockExchange]):
+        self.trader_id = trader_id
+        self.cash = initial_cash
+        self.portfolio = portfolio
+        self.exchanges = exchanges
+        self.order_counter = 0
+        for ex in self.exchanges:
+            ex.register_oms(self.trader_id, self)
+
+    def get_cash_balance(self) -> float:
+        return self.cash
+
+    def get_holdings(self):
+        return self.portfolio
+
+    def deposit_cash(self, amount: float):
+        if amount > 0: self.cash += amount
+
+    def get_portfolio_value(self) -> float:
+        total_value = self.cash
+        for stock, qty in self.portfolio.items():
+            ltp = self.get_last_traded_price(stock) or 100.0
+            total_value += qty * ltp
+        return total_value
+
+    def buy_stock(self, ex_idx: int, stock: str, price: float, qty: int) -> Optional[str]:
+        if (price * qty) > self.cash: return None
+        self.cash -= price * qty
+        order = Order(f"{self.trader_id}_{self.order_counter}", self.trader_id, stock, 'BUY', price, qty, time.time())
+        self.order_counter += 1
+        return order.order_id if self.exchanges[ex_idx].accept_order(order) else None
+
+    def sell_stock(self, ex_idx: int, stock: str, price: float, qty: int) -> Optional[str]:
+        if self.portfolio.get(stock, 0) < qty: return None
+        self.portfolio[stock] -= qty
+        order = Order(f"{self.trader_id}_{self.order_counter}", self.trader_id, stock, 'SELL', price, qty, time.time())
+        self.order_counter += 1
+        return order.order_id if self.exchanges[ex_idx].accept_order(order) else None
+
+    def on_fill(self, trade: Trade, side: str, exchange_id: int):
+        if side == 'BUY':
+            self.portfolio[trade.stock] = self.portfolio.get(trade.stock, 0) + trade.quantity
+            self.cash += (trade.buyer_order.price - trade.price) * trade.quantity
+        else:
+            self.cash += trade.price * trade.quantity
+
+    def on_cancel(self, order: Order, reason: str):
+        if order.side == 'BUY': self.cash += (order.price * order.quantity)
+        else: self.portfolio[order.stock] = self.portfolio.get(order.stock, 0) + order.quantity
+
+    def get_global_best_bid(self, stock: str) -> Optional[float]:
+        bids = [ex.get_best_bid_offer(stock)[0] for ex in self.exchanges]
+        valid = [b for b in bids if b is not None]
+        return max(valid) if valid else None
+
+    def get_global_best_ask(self, stock: str) -> Optional[float]:
+        asks = [ex.get_best_bid_offer(stock)[1] for ex in self.exchanges]
+        valid = [a for a in asks if a is not None]
+        return min(valid) if valid else None
+
+    def get_last_traded_price(self, stock):
+        ltp = [ex.get_last_traded_price(stock) for ex in self.exchanges]
+        valid = [l for l in ltp if l is not None]
+        return max(valid) if valid else None
+
+    def price_exists_at_exchange(self, stock: str, price: float, action: str, exchange_id: int) -> bool:
+        book = self.exchanges[exchange_id].order_books.get(stock)
+        if not book: return False
+        return price in (book.bids if action == 'BUY' else book.asks)
+
+class Trader:
+    def __init__(self, order_manager: OrderManagementSystem, balance: float):
+        self.bank_balance = balance
+        self.quantity = 1000
+        self.order_manager = order_manager
+
+    def decide_price(self, stock: str, action: str) -> float:
+        bb = self.order_manager.get_global_best_bid(stock)
+        ba = self.order_manager.get_global_best_ask(stock)
+        if bb is None or ba is None:
+            ltp = self.order_manager.get_last_traded_price(stock) or 100.0
+            return round(ltp * (1.05 if action == 'BUY' else 0.95), 2)
+        return round(random.choice([bb, ba, (bb + ba) / 2]), 2)
+
+    def decide_exchange(self, stock: str, price: float, action: str) -> int:
+        exists_at_ex0 = self.order_manager.price_exists_at_exchange(stock, price, action, exchange_id=0) #return if bid/ask is present in given exchange
+        exists_at_ex1 = self.order_manager.price_exists_at_exchange(stock, price, action, exchange_id=1) #return if bid/ask is present in given exchange
+        if((exists_at_ex0 and exists_at_ex1)or(not exists_at_ex0 and not exists_at_ex1)):
+            return random.choice([0,1])
+        return 0 if exists_at_ex1 else 1
+
+    def take_action(self, stock: str):
+        action = random.choice(['BUY', 'SELL'])
+        price = self.decide_price(stock, action)
+        exchange = self.decide_exchange(stock, price, action)
+
+        if action == 'BUY':
+            cost = price * self.quantity
+            if self.order_manager.get_cash_balance() < cost:
+                if self.bank_balance < cost: return
+                self.order_manager.deposit_cash(cost)
+                self.bank_balance -= cost
+            self.order_manager.buy_stock(exchange, stock, price, self.quantity)
+        elif action == 'SELL':
+            if self.order_manager.get_holdings().get(stock, 0) >= self.quantity:
+                self.order_manager.sell_stock(exchange, stock, price, self.quantity)
+           
+
+class FastTrader:
+    def __init__(self, oms: OrderManagementSystem,balance: float):
+        self.oms = oms
+        self.bank_balance=balance
+        self.stocks_to_watch = ["AAPL", "GOOG", "MSFT", "AMZN", "TSLA"]
+
+    def perform_fast_action(self, exchange_0: StockExchange, exchange_1: StockExchange):
+        for stock in self.stocks_to_watch:
+            bid_info_0, ask_info_0 = exchange_0.get_bbo_with_volume(stock)
+            bid_info_1, ask_info_1 = exchange_1.get_bbo_with_volume(stock)
+
+            # Case: Buy Ex0, Sell Ex1
+            if ask_info_0 and bid_info_1:
+                p_buy, v_buy = ask_info_0
+                p_sell, v_sell = bid_info_1
+                if p_buy < p_sell:
+                    qty = min(v_buy, v_sell)
+                    if self.oms.get_cash_balance() < (p_buy * qty):
+                        if self.bank_balance < p_buy * qty: return
+                        self.oms.deposit_cash(p_buy * qty)
+                    self.oms.buy_stock(0, stock, p_buy, qty)
+                    self.oms.sell_stock(1, stock, p_sell, qty)
+            # Case: Buy Ex1, Sell Ex0
+            if ask_info_1 and bid_info_0:
+                p_buy, v_buy = ask_info_1
+                p_sell, v_sell = bid_info_0
+                if p_buy < p_sell:
+                    qty = min(v_buy, v_sell)
+                    if self.oms.get_cash_balance() < (p_buy * qty):
+                        if self.bank_balance < p_buy * qty: return
+                        self.oms.deposit_cash(p_buy * qty)
+                    self.oms.buy_stock(1, stock, p_buy, qty)
+                    self.oms.sell_stock(0, stock, p_sell, qty)
+
+# SIMULATION MAIN
+
+def run_simulation():
+    stocks = ["AAPL", "GOOG", "MSFT", "AMZN", "TSLA"]
+    ex0 = StockExchange(0, 0, 23400)
+    ex1 = StockExchange(1, 0, 23400)
+    exchanges = [ex0, ex1]
+
+    # Initialize Traders
+    traders = [
+        Trader(
+            OrderManagementSystem(f"T{i}", 50e6,
+            {s: 50000 for s in stocks}, exchanges),
+            500e6
+        )
+        for i in range(5)
+    ]
+    fast_trader = FastTrader(
+        OrderManagementSystem("FT", 50e6, {s: 50000 for s in stocks}, exchanges),500e6
+    )
+    history = {f"T{i}": [] for i in range(5)}
+    history["FT"] = []
+    time_pts = []
+
+    print("Starting simulation (46,800 steps)...")
+    for step in range(46800):
+        t = step * 0.5
+        if t % 1 == 0:
+            for trader in traders:
+                for s in stocks: trader.take_action(s)
+        else:
+            fast_trader.perform_fast_action(ex0, ex1)
+
+        if step % 120 == 0: # Recording data every 120 seconds
+            time_pts.append(t / 3600)
+            for i, tr in enumerate(traders):
+                history[f"T{i}"].append(tr.order_manager.get_portfolio_value())
+            history["FT"].append(fast_trader.oms.get_portfolio_value())
+            
+            
+
+    ex0.cancel_all_eod()
+    ex1.cancel_all_eod()
+
+    
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+    axes = axes.flatten()
+
+    for i, (tid, vals) in enumerate(history.items()):
+        pnl = [v - vals[0] for v in vals]
+
+        axes[i].plot(time_pts[:len(vals)], pnl)
+        axes[i].set_title(f"P&L of {tid}")
+        axes[i].set_xlabel("Hours")
+        axes[i].set_ylabel("P&L")
+        axes[i].grid(True)
+
+    plt.tight_layout()
+    plt.show()
+    
+    
+
+if __name__ == "__main__":
+    run_simulation()
