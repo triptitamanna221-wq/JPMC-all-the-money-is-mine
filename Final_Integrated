@@ -3,6 +3,7 @@ import random
 import matplotlib.pyplot as plt
 from typing import Dict, List, Optional, Tuple
 
+
 class Order:
     def __init__(self, order_id: str, trader_id: str, stock: str, side: str, price: float, quantity: int, timestamp: float):
         self.order_id = order_id
@@ -13,6 +14,7 @@ class Order:
         self.quantity = quantity
         self.timestamp = timestamp
 
+
 class Trade:
     def __init__(self, stock: str, price: float, quantity: int, buyer_order: Order, seller_order: Order, timestamp: float):
         self.stock = stock
@@ -21,6 +23,7 @@ class Trade:
         self.buyer_order = buyer_order
         self.seller_order = seller_order
         self.timestamp = timestamp
+
 
 class OrderBook:
     def __init__(self):
@@ -42,6 +45,7 @@ class OrderBook:
     def add_order(self, order: Order):
         book = self.bids if order.side == 'BUY' else self.asks
         book.setdefault(order.price, []).append(order)
+
 
 class MatchingEngine:
     def match(self, incoming_order: Order, book: OrderBook) -> List[Trade]:
@@ -83,6 +87,7 @@ class MatchingEngine:
                 if not bid_orders:
                     del book.bids[best_bid]
         return trades
+
 
 class StockExchange:
     def __init__(self, exchange_id: int, trading_start: float, trading_end: float):
@@ -163,6 +168,7 @@ class StockExchange:
                             self.oms_registry[order.trader_id].on_cancel(order, "End of Trading Day")
                 side_book.clear()
 
+
 class OrderManagementSystem:
     def __init__(self, trader_id: str, initial_cash: float, portfolio: Dict[str, int], exchanges: List[StockExchange]):
         self.trader_id = trader_id
@@ -234,6 +240,7 @@ class OrderManagementSystem:
         if not book: return False
         return price in (book.bids if action == 'BUY' else book.asks)
 
+
 class Trader:
     def __init__(self, order_manager: OrderManagementSystem, balance: float):
         self.bank_balance = balance
@@ -270,7 +277,7 @@ class Trader:
         elif action == 'SELL':
             if self.order_manager.get_holdings().get(stock, 0) >= self.quantity:
                 self.order_manager.sell_stock(exchange, stock, price, self.quantity)
-           
+
 
 class FastTrader:
     def __init__(self, oms: OrderManagementSystem,balance: float):
@@ -343,13 +350,10 @@ def run_simulation():
             time_pts.append(t / 3600)
             for i, tr in enumerate(traders):
                 history[f"T{i}"].append(tr.order_manager.get_portfolio_value())
-            history["FT"].append(fast_trader.oms.get_portfolio_value())
-            
-            
+            history["FT"].append(fast_trader.oms.get_portfolio_value())        
 
     ex0.cancel_all_eod()
     ex1.cancel_all_eod()
-
     
     fig, axes = plt.subplots(2, 3, figsize=(15, 8))
     axes = axes.flatten()
@@ -365,8 +369,6 @@ def run_simulation():
 
     plt.tight_layout()
     plt.show()
-    
-    
 
 if __name__ == "__main__":
     run_simulation()
