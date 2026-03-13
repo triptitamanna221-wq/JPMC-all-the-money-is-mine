@@ -39,7 +39,7 @@ class Trade:
         self.buyer_order = buyer_order   # Refer to Order class for the nature of the 'side'
         self.seller_order = seller_order
         self.timestamp = timestamp
-        
+
 
 # Book that stores the orders for a 'single stock' in a particular sequence
 class OrderBook:
@@ -193,7 +193,7 @@ class StockExchange:
             for order in book.bids[p]:
                 if order.trader_id in self.oms_registry:
                     self.oms_registry[order.trader_id].on_cancel(order, "Fell outside top 5 bids")
-                   
+
             del book.bids[p]
 
         top_asks = book.top_5_asks()
@@ -202,7 +202,7 @@ class StockExchange:
             for order in book.asks[p]:
                 if order.trader_id in self.oms_registry:
                     self.oms_registry[order.trader_id].on_cancel(order, "Fell outside top 5 asks")
-                  
+
             del book.asks[p]
 
 # Update the money of the traders
@@ -220,7 +220,7 @@ class StockExchange:
                     for order in orders:
                         if order.trader_id in self.oms_registry:
                             self.oms_registry[order.trader_id].on_cancel(order, "End of Trading Day")
-                        
+
                 side_book.clear()
 
 # The interface between trader and exchange - manages cash and tracks portfolio of the trader
@@ -276,15 +276,15 @@ class OrderManagementSystem:
         if side == 'BUY':
             self.portfolio[trade.stock] = self.portfolio.get(trade.stock, 0) + trade.quantity
             self.cash += (trade.buyer_order.price - trade.price) * trade.quantity
-    
+
         else:
             self.cash += trade.price * trade.quantity
-            
+
         logger.log(
                 "PORTFOLIO",
                 f"Trader {self.trader_id} Cash={round(self.cash,2)} Holdings={self.portfolio}"
             )
-      
+
 
     def on_cancel(self, order: Order, reason: str):
         if order.side == 'BUY': self.cash += (order.price * order.quantity)
@@ -293,7 +293,7 @@ class OrderManagementSystem:
             "ORDER_CANCEL",
             f"Trader {self.trader_id} Order={order.order_id} Reason={reason}"
         )
-        
+
 
 # This is important because we need a method which brings the best bid from both exchanges
     def get_global_best_bid(self, stock: str) -> Optional[float]:
@@ -353,15 +353,15 @@ class Trader:
             cost = price * self.quantity
             if self.order_manager.get_cash_balance() < cost:
                 if self.bank_balance < cost: return
-                
+
                 self.order_manager.deposit_cash(cost)
                 self.bank_balance -= cost
             self.order_manager.buy_stock(exchange, stock, price, self.quantity)
         elif action == 'SELL':
             if self.order_manager.get_holdings().get(stock, 0) >= self.quantity:
                 self.order_manager.sell_stock(exchange, stock, price, self.quantity)
-            
-                
+
+
 
 # This represents the Arbitrage Trader who trades both exchanges simultaneously
 class FastTrader:
@@ -378,7 +378,7 @@ class FastTrader:
             found_arbitrage=False
             # Case: Buy Ex0, Sell Ex1
             if ask_info_0 and bid_info_1:
-                
+
                 p_buy, v_buy = ask_info_0
                 p_sell, v_sell = bid_info_1
                 if p_buy < p_sell:
@@ -406,7 +406,7 @@ class FastTrader:
                     found_arbitrage=True
                     qty = min(v_buy, v_sell)
                     if self.oms.get_cash_balance() < (p_buy * qty):
-                        if self.bank_balance < p_buy * qty: 
+                        if self.bank_balance < p_buy * qty:
                             logger.log(
                                 "NOT ENOUGH CASH ",""
                             )
@@ -464,13 +464,13 @@ def run_simulation():
             for i, tr in enumerate(traders):
                 history[f"T{i}"].append(tr.order_manager.get_portfolio_value())
             history["FT"].append(fast_trader.oms.get_portfolio_value())
-            
-            
+
+
 
     ex0.cancel_all_eod()
     ex1.cancel_all_eod()
 
-    
+
     fig, axes = plt.subplots(2, 3, figsize=(15, 8))
     axes = axes.flatten()
 
@@ -485,8 +485,33 @@ def run_simulation():
 
     plt.tight_layout()
     plt.show()
-    
-    
+
+    # Overall Trade Comparison Graph
+    plt.figure(figsize=(12, 7))
+
+    colors = ['gray', 'gray', 'gray', 'gray', 'gray']
+
+    for i, tid in enumerate(history.keys()):
+        vals = history[tid]
+        # Calculate P&L: Current Value minus Starting Value
+        pnl = [v - vals[0] for v in vals]
+
+        if tid == "FT":
+            # Highlight the Fast Trader in Green/Blue
+            plt.plot(time_pts[:len(pnl)], pnl, label="Fast Trader (HFT/Arb)", linewidth=3, color='forestgreen')
+        else:
+            # Regular traders in thinner gray lines
+            plt.plot(time_pts[:len(pnl)], pnl, alpha=0.5, label=f"Trader {tid}" if i==0 else "")
+
+    plt.title("Cumulative P&L Comparison: HFT vs. Noise Traders", fontsize=14)
+    plt.xlabel("Trading Hours", fontsize=12)
+    plt.ylabel("Profit / Loss (Currency Units)", fontsize=12)
+    plt.axhline(0, color='black', linestyle='--', linewidth=1) # Zero line for reference
+    plt.legend(loc='upper left')
+    plt.grid(True, which='both', linestyle=':', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
 
 if __name__ == "__main__":
     run_simulation()
