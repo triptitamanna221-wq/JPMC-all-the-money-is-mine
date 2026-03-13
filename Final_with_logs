@@ -276,12 +276,14 @@ class OrderManagementSystem:
         if side == 'BUY':
             self.portfolio[trade.stock] = self.portfolio.get(trade.stock, 0) + trade.quantity
             self.cash += (trade.buyer_order.price - trade.price) * trade.quantity
-            logger.log(
+    
+        else:
+            self.cash += trade.price * trade.quantity
+            
+        logger.log(
                 "PORTFOLIO",
                 f"Trader {self.trader_id} Cash={round(self.cash,2)} Holdings={self.portfolio}"
             )
-        else:
-            self.cash += trade.price * trade.quantity
       
 
     def on_cancel(self, order: Order, reason: str):
@@ -389,6 +391,7 @@ class FastTrader:
                             )
                             return
                         self.oms.deposit_cash(p_buy * qty)
+                        self.bank_balance-=p_buy*qty
                     logger.log(
                         "ARBITRAGE",
                         f"{stock} Buy@{p_buy} from exch0 Sell@{p_sell} to exch1 Qty={qty}"
@@ -409,6 +412,7 @@ class FastTrader:
                             )
                             return
                         self.oms.deposit_cash(p_buy * qty)
+                        self.bank_balance-=p_buy*qty
                     logger.log(
                         "ARBITRAGE",
                         f"{stock} Buy@{p_buy} from exch1 Sell@{p_sell} to exch0 Qty={qty}"
