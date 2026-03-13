@@ -10,6 +10,7 @@ This project simulates a high-frequency stock market microstructure environment.
 2. Order Management System (OMS): Acts as the intermediary for all traders, tracking cash balances, portfolio holdings, and routing orders to the exchanges. It handles trade fills, order cancellations (e.g., end-of-day or falling out of the top 5 bids/asks), and calculates real-time portfolio value.
 
 Market Participants (Agents)
+
 3. Standard Traders (Noise Traders): Five distinct trading agents that operate at integer-second frequencies. They simulate retail or algorithmic noise trading by making random directional bets (buy/sell) and randomizing their limit prices around the Best Bid, Best Offer, or Mid-price.
 
 4. Fast Trader (HFT/Arbitrageur): A specialized high-frequency trader operating at half-second intervals. This agent continuously monitors the order books of both exchanges to identify and exploit risk-free arbitrage opportunities (buying low on one exchange and selling high on the other simultaneously), maintaining zero net inventory.
@@ -24,4 +25,5 @@ Logic:
 1. Price-Time Priority: Orders at the same price are filled based on arrival time.
 2. Order Pruning: Bids or offers outside the top 5 levels are automatically cancelled to simulate exchange bandwidth limits.
 3. Settlement: Immediate transfer of funds and shares upon trade execution.
+
 
