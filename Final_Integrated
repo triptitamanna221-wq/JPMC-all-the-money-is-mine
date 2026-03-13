@@ -3,8 +3,9 @@ import random
 import matplotlib.pyplot as plt
 from typing import Dict, List, Optional, Tuple
 
-
+# This class expresses the intent of the order placed
 class Order:
+  # Specifies whether it is buy or sell through 'side' (single request)
     def __init__(self, order_id: str, trader_id: str, stock: str, side: str, price: float, quantity: int, timestamp: float):
         self.order_id = order_id
         self.trader_id = trader_id
@@ -14,44 +15,55 @@ class Order:
         self.quantity = quantity
         self.timestamp = timestamp
 
-
+# Represents the successfully executed transactions between buyers and sellers
 class Trade:
+  # Method that connects the buyer and seller of a single transaction
     def __init__(self, stock: str, price: float, quantity: int, buyer_order: Order, seller_order: Order, timestamp: float):
         self.stock = stock
         self.price = price
         self.quantity = quantity
-        self.buyer_order = buyer_order
+        self.buyer_order = buyer_order   # Refer to Order class for the nature of the 'side'
         self.seller_order = seller_order
         self.timestamp = timestamp
 
-
+# Book that stores the orders for a 'single stock' in a particular sequence
 class OrderBook:
+  # This is a dict defined to store bids and asks - whose keys are prices and values are list of orders at that price (following price time priority)
     def __init__(self):
         self.bids: Dict[float, List[Order]] = {}
         self.asks: Dict[float, List[Order]] = {}
 
+# Helper method finds best bid and best ask (for transaction later)
     def best_bid(self) -> Optional[float]:
         return max(self.bids.keys()) if self.bids else None
 
     def best_ask(self) -> Optional[float]:
         return min(self.asks.keys()) if self.asks else None
 
+# Limit order book upto top 5 bids and 5 asks - slice other bids/asks
     def top_5_bids(self) -> List[float]:
         return sorted(self.bids.keys(), reverse=True)[:5]
 
     def top_5_asks(self) -> List[float]:
         return sorted(self.asks.keys())[:5]
 
+# Price Time Priority implementation
+# Price Priority - Check if the order falls under existing price, else create new price key and sort them
+# Time Priority - If the price bracket is matched, append the latest order to last priority in that price key
     def add_order(self, order: Order):
         book = self.bids if order.side == 'BUY' else self.asks
         book.setdefault(order.price, []).append(order)
 
-
+# Matches the orders using Price Time Priority
 class MatchingEngine:
     def match(self, incoming_order: Order, book: OrderBook) -> List[Trade]:
         trades: List[Trade] = []
+
+        # For either buy or sell - look at the best price available and buy/sell as much as you can, move to next best price if quantity is still left
+        # Resting orders - the ones that already exist in the order book, were not matched during their arrival
+        # Incoming order - Hits the orderbook and triggers the matching, if matched returns 'trade' object else goes to limit order book
         if incoming_order.side == 'BUY':
-            while incoming_order.quantity > 0 and book.asks:
+            while incoming_order.quantity > 0 and book.asks:  # Matching engine to run through asks
                 best_ask = book.best_ask()
                 if best_ask is None or incoming_order.price < best_ask:
                     break
@@ -69,7 +81,7 @@ class MatchingEngine:
                 if not ask_orders:
                     del book.asks[best_ask]
         else:
-            while incoming_order.quantity > 0 and book.bids:
+            while incoming_order.quantity > 0 and book.bids:  # Matching engine to run through bids
                 best_bid = book.best_bid()
                 if best_bid is None or incoming_order.price > best_bid:
                     break
@@ -86,9 +98,9 @@ class MatchingEngine:
                         bid_orders.pop(0)
                 if not bid_orders:
                     del book.bids[best_bid]
-        return trades
+        return trades    # Returns list of trades since a single order can trigger multiple trades (either price wise or multiple stakeholders)
 
-
+# Represents a single market exchange venue - has its independent Matching Engine and holds Order Book for each stock in that exchange
 class StockExchange:
     def __init__(self, exchange_id: int, trading_start: float, trading_end: float):
         self.exchange_id = exchange_id
@@ -102,6 +114,7 @@ class StockExchange:
     def register_oms(self, trader_id: str, oms: 'OrderManagementSystem'):
         self.oms_registry[trader_id] = oms
 
+# Exchange is only open during trading hours - set to true always for convenience
     def _is_trading_open(self) -> bool:
         return True
 
@@ -113,6 +126,7 @@ class StockExchange:
         if not book: return None, None
         return book.best_bid(), book.best_ask()
 
+# This is important because we need to know the entire volume at which the traders can operate in both the exchanges
     def get_bbo_with_volume(self, stock: str) -> Tuple[Optional[Tuple[float, int]], Optional[Tuple[float, int]]]:
         book = self.order_books.get(stock)
         if not book: return None, None
@@ -125,6 +139,7 @@ class StockExchange:
 
         return bid_info, ask_info
 
+# Ensures Order Book exists for the requested stock, if not create one
     def accept_order(self, order: Order) -> bool:
         book = self.order_books.setdefault(order.stock, OrderBook())
         trades = self.matching_engine.match(order, book)
@@ -136,6 +151,7 @@ class StockExchange:
             self._prune_order_book(book)
         return True
 
+# Balance goes to order book, and trigger the price time sorting, helps trader know if the order is pruned
     def _prune_order_book(self, book: OrderBook):
         top_bids = book.top_5_bids()
         prices_to_remove = [p for p in list(book.bids.keys()) if p not in top_bids]
@@ -153,12 +169,14 @@ class StockExchange:
                     self.oms_registry[order.trader_id].on_cancel(order, "Fell outside top 5 asks")
             del book.asks[p]
 
+# Update the money of the traders
     def _settle_trade(self, trade: Trade):
         if trade.buyer_order.trader_id in self.oms_registry:
             self.oms_registry[trade.buyer_order.trader_id].on_fill(trade, side='BUY', exchange_id=self.exchange_id)
         if trade.seller_order.trader_id in self.oms_registry:
             self.oms_registry[trade.seller_order.trader_id].on_fill(trade, side='SELL', exchange_id=self.exchange_id)
 
+# Cancel trades if they arent executed within the stipulated time - although here there is no usage because the Exchange never closes
     def cancel_all_eod(self):
         for book in self.order_books.values():
             for side_book in [book.bids, book.asks]:
@@ -168,7 +186,7 @@ class StockExchange:
                             self.oms_registry[order.trader_id].on_cancel(order, "End of Trading Day")
                 side_book.clear()
 
-
+# The interface between trader and exchange - manages cash and tracks portfolio of the trader
 class OrderManagementSystem:
     def __init__(self, trader_id: str, initial_cash: float, portfolio: Dict[str, int], exchanges: List[StockExchange]):
         self.trader_id = trader_id
@@ -188,6 +206,7 @@ class OrderManagementSystem:
     def deposit_cash(self, amount: float):
         if amount > 0: self.cash += amount
 
+# Extracts the total cash of the trader = Cash + (Stock Price * Last Traded Price)
     def get_portfolio_value(self) -> float:
         total_value = self.cash
         for stock, qty in self.portfolio.items():
@@ -195,6 +214,7 @@ class OrderManagementSystem:
             total_value += qty * ltp
         return total_value
 
+# Prevents traders from spending money they do not have
     def buy_stock(self, ex_idx: int, stock: str, price: float, qty: int) -> Optional[str]:
         if (price * qty) > self.cash: return None
         self.cash -= price * qty
@@ -209,6 +229,7 @@ class OrderManagementSystem:
         self.order_counter += 1
         return order.order_id if self.exchanges[ex_idx].accept_order(order) else None
 
+# If Exchange does not call, OMS can not update the status of the order
     def on_fill(self, trade: Trade, side: str, exchange_id: int):
         if side == 'BUY':
             self.portfolio[trade.stock] = self.portfolio.get(trade.stock, 0) + trade.quantity
@@ -220,6 +241,7 @@ class OrderManagementSystem:
         if order.side == 'BUY': self.cash += (order.price * order.quantity)
         else: self.portfolio[order.stock] = self.portfolio.get(order.stock, 0) + order.quantity
 
+# This is important because we need a method which brings the best bid from both exchanges
     def get_global_best_bid(self, stock: str) -> Optional[float]:
         bids = [ex.get_best_bid_offer(stock)[0] for ex in self.exchanges]
         valid = [b for b in bids if b is not None]
@@ -235,18 +257,20 @@ class OrderManagementSystem:
         valid = [l for l in ltp if l is not None]
         return max(valid) if valid else None
 
+# To inform trader early on that the price already exists in Order Book
     def price_exists_at_exchange(self, stock: str, price: float, action: str, exchange_id: int) -> bool:
         book = self.exchanges[exchange_id].order_books.get(stock)
         if not book: return False
         return price in (book.bids if action == 'BUY' else book.asks)
 
-
+# Represents the noise trader who randomly buy and sell
 class Trader:
     def __init__(self, order_manager: OrderManagementSystem, balance: float):
         self.bank_balance = balance
         self.quantity = 1000
         self.order_manager = order_manager
 
+# Looks at the global prices to decide best bid and offer
     def decide_price(self, stock: str, action: str) -> float:
         bb = self.order_manager.get_global_best_bid(stock)
         ba = self.order_manager.get_global_best_ask(stock)
@@ -255,6 +279,7 @@ class Trader:
             return round(ltp * (1.05 if action == 'BUY' else 0.95), 2)
         return round(random.choice([bb, ba, (bb + ba) / 2]), 2)
 
+# Decides one exchange operation at a time
     def decide_exchange(self, stock: str, price: float, action: str) -> int:
         exists_at_ex0 = self.order_manager.price_exists_at_exchange(stock, price, action, exchange_id=0) #return if bid/ask is present in given exchange
         exists_at_ex1 = self.order_manager.price_exists_at_exchange(stock, price, action, exchange_id=1) #return if bid/ask is present in given exchange
@@ -278,13 +303,14 @@ class Trader:
             if self.order_manager.get_holdings().get(stock, 0) >= self.quantity:
                 self.order_manager.sell_stock(exchange, stock, price, self.quantity)
 
-
+# This represents the Arbitrage Trader who trades both exchanges simultaneously
 class FastTrader:
     def __init__(self, oms: OrderManagementSystem,balance: float):
         self.oms = oms
         self.bank_balance=balance
         self.stocks_to_watch = ["AAPL", "GOOG", "MSFT", "AMZN", "TSLA"]
 
+# Fast trader wants the entire liquidity across exchanges to compare best global bid and offer
     def perform_fast_action(self, exchange_0: StockExchange, exchange_1: StockExchange):
         for stock in self.stocks_to_watch:
             bid_info_0, ask_info_0 = exchange_0.get_bbo_with_volume(stock)
@@ -321,7 +347,7 @@ def run_simulation():
     ex1 = StockExchange(1, 0, 23400)
     exchanges = [ex0, ex1]
 
-    # Initialize Traders
+    # Initialize Traders (Noise, HFT)
     traders = [
         Trader(
             OrderManagementSystem(f"T{i}", 50e6,
@@ -350,11 +376,13 @@ def run_simulation():
             time_pts.append(t / 3600)
             for i, tr in enumerate(traders):
                 history[f"T{i}"].append(tr.order_manager.get_portfolio_value())
-            history["FT"].append(fast_trader.oms.get_portfolio_value())        
+            history["FT"].append(fast_trader.oms.get_portfolio_value())
+
 
     ex0.cancel_all_eod()
     ex1.cancel_all_eod()
-    
+
+
     fig, axes = plt.subplots(2, 3, figsize=(15, 8))
     axes = axes.flatten()
 
@@ -369,6 +397,33 @@ def run_simulation():
 
     plt.tight_layout()
     plt.show()
+
+    # Overall Trade Comparison Graph
+    plt.figure(figsize=(12, 7))
+    
+    colors = ['gray', 'gray', 'gray', 'gray', 'gray'] 
+    
+    for i, tid in enumerate(history.keys()):
+        vals = history[tid]
+        # Calculate P&L: Current Value minus Starting Value
+        pnl = [v - vals[0] for v in vals]
+        
+        if tid == "FT":
+            # Highlight the Fast Trader in Green/Blue
+            plt.plot(time_pts[:len(pnl)], pnl, label="Fast Trader (HFT/Arb)", linewidth=3, color='forestgreen')
+        else:
+            # Regular traders in thinner gray lines
+            plt.plot(time_pts[:len(pnl)], pnl, alpha=0.5, label=f"Trader {tid}" if i==0 else "")
+
+    plt.title("Cumulative P&L Comparison: HFT vs. Noise Traders", fontsize=14)
+    plt.xlabel("Trading Hours", fontsize=12)
+    plt.ylabel("Profit / Loss (Currency Units)", fontsize=12)
+    plt.axhline(0, color='black', linestyle='--', linewidth=1) # Zero line for reference
+    plt.legend(loc='upper left')
+    plt.grid(True, which='both', linestyle=':', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
 
 if __name__ == "__main__":
     run_simulation()
