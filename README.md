@@ -20,10 +20,13 @@ The main simulation loop runs for 46,800 steps (0.5-second increments) across mu
 
 ## Technical Implementation
 Language: Python 3.x
+
 Libraries: matplotlib (Visualization), random (Stochastic modeling), typing (Type hinting).
+
 Logic: 
 1. Price-Time Priority: Orders at the same price are filled based on arrival time.
 2. Order Pruning: Bids or offers outside the top 5 levels are automatically cancelled to simulate exchange bandwidth limits.
 3. Settlement: Immediate transfer of funds and shares upon trade execution.
+
 
 
